@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ivy-module version="2.0">
+    <info organisation="com.example" module="todo-list"/>
+    <configurations>
+        <conf name="compile" visibility="public"/>
+        <conf name="runtime" extends="compile" visibility="public"/>
+        <conf name="test" extends="runtime" visibility="public"/>
+    </configurations>
+
+    <dependencies>
+        <!-- JUnit 5.10.2 (Jupiter) -->
+        <dependency org="org.junit.jupiter" name="junit-jupiter-api"    rev="5.10.2" conf="test->default"/>
+        <dependency org="org.junit.jupiter" name="junit-jupiter-engine" rev="5.10.2" conf="test->default"/>
+        <dependency org="org.junit.jupiter" name="junit-jupiter-params" rev="5.10.2" conf="test->default"/>
+
+        <!-- Manquant pour junitlauncher : le Launcher -->
+        <dependency org="org.junit.platform" name="junit-platform-launcher" rev="1.10.2" conf="test->default"/>
+    </dependencies>
+</ivy-module>

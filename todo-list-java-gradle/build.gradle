@@ -1,0 +1,58 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'todolist'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JUnit 5.10.2 via BOM pour aligner Jupiter/Platform
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+application {
+    mainClass = 'todolist.Main'
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        showStandardStreams = true
+    }
+}
+
+// JAR exécutable : manifeste avec Main-Class
+// --- ajoute la classe Main dans le manifeste 
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Main-Class': 'todolist.Main',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+// Assurer un stdin interactif et un affichage UTF-8 lors de :run
+tasks.named('run', JavaExec) {
+    standardInput = System.in
+    jvmArgs '-Dfile.encoding=UTF-8'
+}
+
+tasks.wrapper {
+    gradleVersion = '8.14.2'
+    distributionType = Wrapper.DistributionType.BIN
+}

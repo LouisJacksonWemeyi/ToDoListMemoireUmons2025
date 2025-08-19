@@ -1,0 +1,30 @@
+Exemples d’exécution (Git Bash, Windows 10)
+# Build complet (télécharge acutest.h la 1ère fois)
+$ mingw32-make
+>> Téléchargement de acutest.h
+[...compilation...]
+
+# Lancer les tests unitaires
+$ mingw32-make test
+Running 5 tests...
+[ 1/5 ] Ajout de taches              OK
+[ 2/5 ] Toggle termine/en cours      OK
+[ 3/5 ] Mise a jour description      OK
+[ 4/5 ] Suppression + renumerotation OK
+[ 5/5 ] Capacite MAX_TASKS           OK
+
+5 tests, 0 failures.
+
+# Lancer l’application console
+$ mingw32-make run
+
+--- Menu To-Do List ---
+1. Ajouter une tache
+2. Voir les taches
+3. Modifier une tache
+4. Supprimer une tache
+5. Marquer/Démarquer comme faite
+0. Quitter
+Votre choix: 1
+Description de la tache: Acheter du pain
+Tache ajoutee.

@@ -1,0 +1,126 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>todo-list</artifactId>
+  <version>1.0.0</version>
+  <name>ToDo List (Maven, JUnit 5.10.2, JDK 24.0.1)</name>
+  <description>To-Do List CLI avec CRUD, tests JUnit 5.10.2, build Maven 3.9.10, JDK 24.0.1</description>
+
+  <properties>
+    <!-- Versions -->
+    <maven.version.required>3.9.10</maven.version.required>
+    <junit.jupiter.version>5.10.2</junit.jupiter.version>
+    <maven.compiler.plugin.version>3.14.0</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>3.5.3</maven.surefire.plugin.version>
+    <maven.toolchains.plugin.version>3.2.0</maven.toolchains.plugin.version>
+    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
+
+    <!-- Java 24 -->
+    <maven.compiler.release>24</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <build>
+    <plugins>
+      <!-- Enforce Maven 3.9.10 et JDK 24.0.1 exact -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-versions</id>
+            <goals><goal>enforce</goal></goals>
+            <phase>validate</phase>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[${maven.version.required},${maven.version.required}]</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <!-- EXACTEMENT 24.0.1 -->
+                  <version>[24.0.1,24.0.1]</version>
+                </requireJavaVersion>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Sélection du JDK 24.0.1 via toolchains -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-toolchains-plugin</artifactId>
+        <version>${maven.toolchains.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>select-jdk-24</id>
+            <phase>validate</phase>
+            <goals>
+              <!-- goal moderne (Maven 3.2.0+) -->
+              <goal>select-jdk-toolchain</goal>
+            </goals>
+            <configuration>
+              <jdk>
+                <version>24.0.1</version>
+                <!-- vendor "any" = accepte n’importe quel distributeur (Oracle, Eclipse Temurin, etc.) -->
+                <vendor>any</vendor>
+              </jdk>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Compilation en release 24 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven.compiler.plugin.version}</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+        </configuration>
+      </plugin>
+
+      <!-- Tests JUnit 5.10.2 avec Surefire (phase `test`) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven.surefire.plugin.version}</version>
+        <configuration>
+          <!-- utile dans certains contextes de modules JPMS -->
+          <useModulePath>false</useModulePath>
+          <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+        </configuration>
+      </plugin>
+
+      <!-- Jar exécutable -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>com.example.todo.Main</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <!-- JUnit Jupiter (API + Engine + Params) -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.jupiter.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -1,0 +1,45 @@
+Build & Exécution (Git Bash, Windows 10)
+Dans todo-app/ :
+
+# Compilation complète (appli + tests). Télécharge doctest.h si nécessaire.
+mingw32-make
+
+# Lancer les tests unitaires
+./bin/tests.exe
+
+# Lancer l'application
+./bin/todo.exe
+
+# Nettoyer
+mingw32-make clean
+
+
+Exemples d’exécution
+Tests
+
+$ ./bin/tests.exe
+[doctest] doctest version is "2.x"...
+===============================================================================
+[doctest] test cases: 2 | 2 passed | 0 failed | 0 skipped
+[doctest] assertions: 20 | 20 passed | 0 failed
+[doctest] Status: SUCCESS!
+
+
+Etapes pour installer LLD.
+Utiliser la console MSYS2 MinGW 64-bit pour installer LLD.
+Ouvrir la console “MSYS2 MinGW 64-bit”.
+Mets à jour et installe la toolchain + lld :
+
+pacman -Syu    # si pacman te le demande, ferme/réouvre le shell puis refais
+pacman -Syu
+pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-lld make git
+
+Ajouter la toolchain MinGW-w64 (MSYS2) au PATH de Git Bash:
+export PATH="/c/msys64/mingw64/bin:$PATH"
+
+# (facultatif) garde ça à chaque session :
+echo 'export PATH="/c/msys64/mingw64/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+Dans le fichier Makefile, ajouter l’usage de LLD :
+LDFLAGS += -fuse-ld=lld

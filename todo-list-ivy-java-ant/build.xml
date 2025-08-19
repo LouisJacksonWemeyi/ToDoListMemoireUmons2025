@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="todo-ivy-ant" default="help" basedir="." xmlns:ivy="antlib:org.apache.ivy.ant">
+    <!-- ======================== PROPERTIES ======================== -->
+    <property environment="env"/>
+    <!-- Chemin JDK : par défaut prend JAVA_HOME ; surchargez avec -Djdk.home=/chemin/vers/jdk-21.x -->
+    <property name="jdk.home" value="${env.JAVA_HOME}"/>
+    <property name="jdk.bin"  value="${jdk.home}/bin"/>
+
+    <property name="src.main.dir"   value="src/main/java"/>
+    <property name="src.test.dir"   value="src/test/java"/>
+    <property name="build.dir"      value="build"/>
+    <property name="classes.dir"    value="${build.dir}/classes"/>
+    <property name="test.classes.dir" value="${build.dir}/test-classes"/>
+    <property name="reports.dir"    value="${build.dir}/reports"/>
+    <property name="dist.dir"       value="dist"/>
+
+    <property name="main.class"     value="todo.Main"/>
+    <property name="project.jar"    value="${dist.dir}/todo-list.jar"/>
+
+    <!-- Ivy bootstrap local -->
+    <property name="ivy.version"    value="2.5.2"/>
+    <property name="ivy.jar.dir"    value="tools/ivy"/>
+    <property name="ivy.jar.file"   value="${ivy.jar.dir}/ivy-${ivy.version}.jar"/>
+
+    <!-- ======================== INIT DIRS ========================= -->
+    <target name="init">
+        <mkdir dir="${classes.dir}"/>
+        <mkdir dir="${test.classes.dir}"/>
+        <mkdir dir="${reports.dir}"/>
+        <mkdir dir="${dist.dir}"/>
+    </target>
+
+    <!-- ==================== BOOTSTRAP APACHE IVY ================== -->
+    <!-- Vérifie si le jar Ivy existe, sinon le télécharge -->
+    <target name="bootstrap-ivy">
+        <mkdir dir="${ivy.jar.dir}"/>
+        <available file="${ivy.jar.file}" property="ivy.present"/>
+        <antcall target="download-ivy-if-missing"/>
+    </target>
+
+    <target name="download-ivy-if-missing" unless="ivy.present">
+        <echo>Downloading Apache Ivy ${ivy.version} ...</echo>
+        <get src="https://repo1.maven.org/maven2/org/apache/ivy/ivy/${ivy.version}/ivy-${ivy.version}.jar"
+             dest="${ivy.jar.file}" usetimestamp="true"/>
+    </target>
+
+    <target name="init-ivy" depends="bootstrap-ivy">
+        <taskdef uri="antlib:org.apache.ivy.ant"
+                 resource="org/apache/ivy/ant/antlib.xml"
+                 classpath="${ivy.jar.file}"/>
+    </target>
+
+    <!-- ===================== RESOLVE DEPENDENCIES ================= -->
+    <target name="resolve" depends="init-ivy">
+        <ivy:settings file="ivysettings.xml"/>
+        <ivy:resolve file="ivy.xml" conf="compile,runtime,test" />
+        <!-- classpaths -->
+        <ivy:cachepath conf="compile" pathid="cp.compile"/>
+        <ivy:cachepath conf="runtime" pathid="cp.runtime"/>
+        <ivy:cachepath conf="test"    pathid="cp.test"/>
+    </target>
+
+    <!-- ======================= COMPILE MAIN ======================= -->
+    <target name="compile" depends="init,resolve">
+        <echo>Compiling with JDK at ${jdk.home} (Java 21 required)</echo>
+        <javac fork="true"
+               executable="${jdk.bin}/javac"
+               srcdir="${src.main.dir}"
+               destdir="${classes.dir}"
+               includeantruntime="false"
+               release="21">
+            <classpath>
+                <path refid="cp.compile"/>
+            </classpath>
+        </javac>
+    </target>
+
+    <!-- ======================= COMPILE TESTS ====================== -->
+    <target name="compile-tests" depends="compile">
+        <javac fork="true"
+               executable="${jdk.bin}/javac"
+               srcdir="${src.test.dir}"
+               destdir="${test.classes.dir}"
+               includeantruntime="false"
+               release="21">
+            <classpath>
+                <pathelement location="${classes.dir}"/>
+                <path refid="cp.test"/>
+                <path refid="cp.runtime"/>
+            </classpath>
+        </javac>
+    </target>
+
+    <!-- ========================== TESTS =========================== -->
+    <!-- Ant 1.10.6+ requis pour junitlauncher -->
+    <target name="test" depends="compile-tests">
+        <mkdir dir="${reports.dir}/tests"/>
+        <junitlauncher haltOnFailure="true" printSummary="true">
+            <!-- Classpath des tests (tests + classes + libs Ivy) -->
+            <classpath>
+                <pathelement location="${test.classes.dir}"/>
+                <pathelement location="${classes.dir}"/>
+                <path refid="cp.test"/>
+                <path refid="cp.runtime"/>
+            </classpath>
+
+            <!-- Fork à placer ICI, à l'intérieur de <testclasses> -->
+            <testclasses outputdir="${reports.dir}/tests">
+                <fileset dir="${test.classes.dir}">
+                    <include name="**/*Test.class"/>
+                </fileset>
+
+                <!-- JVM forkée pour éviter l'exécution in-vm -->
+                <fork java="${jdk.bin}/java"
+                    includeJUnitPlatformLibraries="true"
+                    includeAntRuntimeLibraries="true">
+                    <!-- (optionnel) ouvre des modules Java 21 si besoin -->
+                    <jvmarg value="--add-opens=java.base/java.lang=ALL-UNNAMED"/>
+                    <jvmarg value="--add-opens=java.base/java.util=ALL-UNNAMED"/>
+                </fork>
+
+                <!-- Rapports style JUnit4 (TXT + XML) -->
+                <listener type="legacy-brief" sendSysOut="true"/>
+                <listener type="legacy-xml"   sendSysOut="true" sendSysErr="true"/>
+            </testclasses>
+        </junitlauncher>
+    </target>
+
+    <!-- ============================ RUN =========================== -->
+    <target name="run" depends="compile">
+        <java fork="true" jvm="${jdk.bin}/java" classname="${main.class}">
+            <classpath>
+                <pathelement location="${classes.dir}"/>
+                <path refid="cp.runtime"/>
+            </classpath>
+        </java>
+    </target>
+
+    <!-- ============================ JAR =========================== -->
+    <target name="jar" depends="compile">
+        <jar destfile="${project.jar}" basedir="${classes.dir}">
+            <manifest>
+                <attribute name="Main-Class" value="${main.class}"/>
+                <attribute name="Class-Path" value="."/>
+            </manifest>
+        </jar>
+        <echo>JAR created at ${project.jar}</echo>
+    </target>
+
+    <!-- =========================== CLEAN ========================== -->
+    <target name="clean">
+        <delete dir="${build.dir}"/>
+        <delete dir="${dist.dir}"/>
+        <!-- gardez tools/ivy pour éviter de re-télécharger à chaque build -->
+    </target>
+
+    <!-- ============================ HELP ========================== -->
+    <target name="help">
+        <echo>
+Targets:
+  ant resolve        -> télécharge les dépendances (Ivy)
+  ant compile        -> compile le code main (Java 21)
+  ant compile-tests  -> compile les tests
+  ant test           -> exécute JUnit 5 (rapports dans build/reports/tests)
+  ant run            -> lance l'appli console
+  ant jar            -> assemble un JAR exécutable (dist/todo-list.jar)
+  ant clean          -> nettoie
+Astuce: préciser le JDK exact:  ant -Djdk.home=/chemin/jdk-21.0.3 run
+        </echo>
+    </target>
+</project>

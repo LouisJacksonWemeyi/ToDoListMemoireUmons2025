@@ -1,0 +1,84 @@
+Voici toutes les étapes pour recréer / compiler / tester / exécuter 
+la To-Do List en C# (.NET SDK) et des tests xUnit.
+
+1) Prérequis
+    Windows 10
+    .NET SDK 6.0+ (dotnet --version)
+
+2) Créer l’arborescence et les projets (dotnet CLI)
+Dans PowerShell ou CMD :
+
+    mkdir ToDoListNetSDK
+    cd ToDoListNetSDK
+
+    dotnet new sln -n ToDoListNetSDK
+
+    dotnet new console -n ToDoApp -o src/ToDoApp
+    dotnet new xunit   -n ToDoApp.Tests -o tests/ToDoApp.Tests
+
+    dotnet sln add src/ToDoApp/ToDoApp.csproj
+    dotnet sln add tests/ToDoApp.Tests/ToDoApp.Tests.csproj
+
+Ajouter les packages de test utiles (au cas où le template ne les met pas à jour) :
+
+    dotnet add tests/ToDoApp.Tests/ToDoApp.Tests.csproj package Microsoft.NET.Test.Sdk --version 17.10.0
+    dotnet add tests/ToDoApp.Tests/ToDoApp.Tests.csproj package xunit                  --version 2.6.6
+    dotnet add tests/ToDoApp.Tests/ToDoApp.Tests.csproj package xunit.runner.visualstudio --version 2.5.6
+    dotnet add tests/ToDoApp.Tests/ToDoApp.Tests.csproj package FluentAssertions       --version 6.12.0
+
+Relier les tests au projet applicatif :
+
+    dotnet add tests/ToDoApp.Tests/ToDoApp.Tests.csproj reference src/ToDoApp/ToDoApp.csproj
+
+3) Ajouter le code de l’application
+    - src/ToDoApp/ToDoItem.cs
+    - src/ToDoApp/ToDoList.cs
+    - src/ToDoApp/Program.cs
+    - tests/ToDoApp.Tests/ToDoListTests.cs
+
+5) Compiler, tester, exécuter
+Depuis la racine ToDoListNetSDK :
+    dotnet restore
+    dotnet build
+    dotnet test
+    dotnet run --project src/ToDoApp/ToDoApp.csproj
+
+7) (Optionnel) Script pratique
+Créez build.ps1 à la racine pour tout enchaîner :
+# build.ps1
+    dotnet restore .\src\ToDoApp\ToDoApp.csproj
+    dotnet restore .\tests\ToDoApp.Tests\ToDoApp.Tests.csproj
+    dotnet build   .\src\ToDoApp\ToDoApp.csproj -c Debug
+    dotnet build   .\tests\ToDoApp.Tests\ToDoApp.Tests.csproj -c Debug
+    dotnet test    .\tests\ToDoApp.Tests\ToDoApp.Tests.csproj --no-build
+    dotnet run     --project .\src\ToDoApp\ToDoApp.csproj
+
+
+8) Commandes à exécuter pour revenir à l'etat initial pour rebuilder et lancer a nouveau les test unitaires (comme par exemple ''make clean'')
+
+Nettoyage simple (comme make clean)
+À la racine de la solution :
+    dotnet clean ToDoListNetSDK.sln -c Debug
+    REM (ou -c Release si besoin)
+
+Rebuild + tests (à partir d’un état propre)
+    dotnet restore
+    dotnet build -c Debug
+    dotnet test  -c Debug
+    dotnet run --project src/ToDoApp/ToDoApp.csproj
+
+Deep clean (supprimer tous les bin/ et obj/)
+PowerShell
+    Get-ChildItem -Recurse -Force -Directory bin,obj | Remove-Item -Recurse -Force
+
+CMD (Invite de commandes)
+    for /d /r %d in (bin obj) do @if exist "%d" rd /s /q "%d"
+
+Quand ça “accroche” encore (rare)
+    dotnet nuget locals all --clear     REM vide les caches NuGet
+    dotnet build-server shutdown        REM ferme les serveurs MSBuild/Roslyn
+
+Raccourci “Clean + Build” en une seule commande
+    dotnet build -t:Rebuild -c Debug
+
+
