@@ -43,3 +43,8 @@ source ~/.bashrc
 
 Dans le fichier Makefile, ajouter l’usage de LLD :
 LDFLAGS += -fuse-ld=lld
+
+Ajout pour montrer Comment executer le nouveau Makefile pour qu'il affiche le temps total de build
+(Facultatif) Temps total du build
+Depuis Git Bash :
+START=$(date +%s); mingw32-make -j4; END=$(date +%s); echo "Total: $((END-START)) s"
