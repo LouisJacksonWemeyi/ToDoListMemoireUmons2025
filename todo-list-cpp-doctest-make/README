@@ -48,3 +48,5 @@ Ajout pour montrer Comment executer le nouveau Makefile pour qu'il affiche le te
 (Facultatif) Temps total du build
 Depuis Git Bash :
 START=$(date +%s); mingw32-make -j4; END=$(date +%s); echo "Total: $((END-START)) s"
+
+# touch
