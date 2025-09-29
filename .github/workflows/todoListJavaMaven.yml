@@ -1,4 +1,4 @@
-name: CI-CD Maven (Java 24.0.1)
+name: CI/CD Maven ToDoList (Java 24.0.1)
 
 on:
   push:
