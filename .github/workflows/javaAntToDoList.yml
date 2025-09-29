@@ -116,41 +116,59 @@ jobs:
           path: dist
 
       # Crée ou met à jour le tag seulement si lancé en workflow_dispatch
-      - name: Create/Update tag (workflow_dispatch only)
+      - name: Create/Update tag (handles empty version)
         if: github.event_name == 'workflow_dispatch'
+        id: tag
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const version = core.getInput('version');
-            if (!/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
-              core.setFailed(`Invalid version: ${version}. Expected vMAJOR.MINOR.PATCH`);
+            const rx = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+            let version = (core.getInput('version') || '').trim();
+      
+            // Auto-calc si input vide
+            if (!version) {
+              const { data: tags } = await github.rest.repos.listTags({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+              const versions = tags
+                .map(t => t.name)
+                .filter(n => rx.test(n))
+                .sort((a,b) => {
+                  const [A,B,C] = a.match(/\d+/g).map(Number);
+                  const [X,Y,Z] = b.match(/\d+/g).map(Number);
+                  return A-X || B-Y || C-Z;
+                });
+              if (versions.length) {
+                const last = versions[versions.length - 1];
+                const m = /^v(\d+)\.(\d+)\.(\d+)/.exec(last);
+                const major = +m[1], minor = +m[2], patch = +m[3];
+                version = `v${major}.${minor}.${patch+1}`;
+                core.info(`Auto-bump: ${last} -> ${version}`);
+              } else {
+                version = 'v0.1.0';
+                core.info(`No v* tag found, using ${version}`);
+              }
+            } else if (!rx.test(version)) {
+              core.setFailed(`Invalid version: ${version}. Expected vMAJOR.MINOR.PATCH (e.g. v1.2.3)`);
               return;
             }
-            const sha = context.sha; // le même commit que build-test
+      
+            // Crée / met à jour le tag sur le commit courant
+            const sha = context.sha;
             const ref = `refs/tags/${version}`;
             try {
-              await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `tags/${version}`,
-              });
-              core.info(`Tag ${version} existe déjà -> mise à jour sur ${sha}`);
-              await github.rest.git.updateRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `tags/${version}`,
-                sha,
-                force: true
-              });
-            } catch (e) {
-              core.info(`Création du tag ${version} -> ${sha}`);
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref,
-                sha
-              });
+              await github.rest.git.getRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${version}` });
+              core.info(`Tag ${version} exists -> updating to ${sha}`);
+              await github.rest.git.updateRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${version}`, sha, force: true });
+            } catch {
+              core.info(`Creating tag ${version} at ${sha}`);
+              await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref, sha });
             }
+      
+            core.setOutput('version', version);
 
       # Crée la release :
       # - si workflow_dispatch : tag = inputs.version
