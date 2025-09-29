@@ -6,13 +6,13 @@ name: CI/CD - ToDoList (Ant+Ivy+JUnit)
 on:
   push:
     branches: [ main, master ]
-    tags: [ 'v*' ]                 # CD auto si push d'un tag vX.Y.Z
+    tags: [ 'v*' ]               # si tu pousses un tag vX.Y.Z, on déploie aussi
   pull_request:
-  workflow_dispatch:                # CD manuel : peut créer le tag si vide
+  workflow_dispatch:              # déclenchement manuel avec création du tag + release
     inputs:
       version:
-        description: "Version (ex: v1.0.0). Laisse vide pour auto-bump (patch)."
-        required: false
+        description: "Version (ex: v1.0.0)"
+        required: true
         type: string
       notes:
         description: "Release notes (optionnel)"
@@ -21,22 +21,20 @@ on:
         default: ""
 
 permissions:
-  contents: write                   # requis pour créer tag + release
+  contents: write                 # nécessaire pour créer/mettre à jour le tag et la release
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# IMPORTANT: le projet est dans ce sous-dossier
-defaults:
-  run:
-    shell: bash
-    working-directory: todo-list-ivy-java-ant
-
 jobs:
   build-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: todo-list-ivy-java-ant
 
     steps:
       - name: Checkout
@@ -63,7 +61,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ivy-
 
-      # Optionnel : si tu gardes le jar d'Ivy localement
+      # Optionnel si tu conserves le jar d'Ivy dans tools/ivy
       - name: Cache local tools/ivy (optional)
         uses: actions/cache@v4
         with:
@@ -91,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: todo-list-jar
-          path: dist/todo-list.jar
+          path: todo-list-ivy-java-ant/dist/todo-list.jar
           if-no-files-found: error
 
       - name: Upload JUnit reports (debug)
@@ -99,16 +97,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: junit-reports
-          path: build/reports/tests
+          path: todo-list-ivy-java-ant/build/reports/tests
           if-no-files-found: ignore
 
   tag-and-release:
     name: Create Tag & Release
     needs: build-test
     runs-on: ubuntu-latest
-    # déployer si: (1) workflow_dispatch (manuel) OU (2) push d'un tag v*
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,89 +115,54 @@ jobs:
           name: todo-list-jar
           path: dist
 
-      # Détermine la version :
-      # - si push de tag v*  -> utilise ce tag
-      # - si manual dispatch -> si input version vide, calcule v(last)+1 (patch)
-      - name: Resolve target version
-        id: ver
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const ev = context.eventName;
-            // 1) Cas push de tag v*
-            if (ev === 'push' && context.ref.startsWith('refs/tags/')) {
-              const tag = context.ref.replace('refs/tags/', '');
-              core.setOutput('version', tag);
-              core.info(`Using pushed tag: ${tag}`);
-              return;
-            }
-
-            // 2) Cas workflow_dispatch : lire l'input 'version'
-            const input = (core.getInput('version') || '').trim();
-            const rx = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-            if (input) {
-              if (!rx.test(input)) {
-                core.setFailed(`Invalid version: ${input}. Expected vMAJOR.MINOR.PATCH (e.g. v1.2.3 or v1.2.3-rc1)`);
-                return;
-              }
-              core.setOutput('version', input);
-              core.info(`Using provided version: ${input}`);
-              return;
-            }
-
-            // 3) Pas d'input -> auto-bump PATCH depuis le dernier tag v*
-            const { data: tags } = await github.rest.repos.listTags({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100
-            });
-            const versions = tags
-              .map(t => t.name)
-              .filter(n => rx.test(n))
-              .sort((a,b) => {
-                const [A,B,C] = a.match(/\d+/g).map(Number);
-                const [X,Y,Z] = b.match(/\d+/g).map(Number);
-                return A-X || B-Y || C-Z;
-              });
-            let next = 'v0.1.0';
-            if (versions.length) {
-              const last = versions[versions.length - 1];
-              const m = /^v(\d+)\.(\d+)\.(\d+)/.exec(last);
-              const major = parseInt(m[1],10), minor = parseInt(m[2],10), patch = parseInt(m[3],10);
-              next = `v${major}.${minor}.${patch+1}`;
-              core.info(`Auto-bump from ${last} -> ${next}`);
-            } else {
-              core.info(`No previous v* tag found -> using ${next}`);
-            }
-            core.setOutput('version', next);
-
-      # Crée / Met à jour le tag (uniquement si workflow_dispatch)
-      - name: Create/Update tag
+      # Crée ou met à jour le tag seulement si lancé en workflow_dispatch
+      - name: Create/Update tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const version = core.getInput('version') || '${{ steps.ver.outputs.version }}';
-            const sha = context.sha;
+            const version = core.getInput('version');
+            if (!/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
+              core.setFailed(`Invalid version: ${version}. Expected vMAJOR.MINOR.PATCH`);
+              return;
+            }
+            const sha = context.sha; // le même commit que build-test
             const ref = `refs/tags/${version}`;
             try {
-              await github.rest.git.getRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${version}` });
-              core.info(`Tag ${version} exists -> updating to ${sha}`);
-              await github.rest.git.updateRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${version}`, sha, force: true });
-            } catch {
-              core.info(`Creating tag ${version} at ${sha}`);
-              await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref, sha });
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${version}`,
+              });
+              core.info(`Tag ${version} existe déjà -> mise à jour sur ${sha}`);
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${version}`,
+                sha,
+                force: true
+              });
+            } catch (e) {
+              core.info(`Création du tag ${version} -> ${sha}`);
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha
+              });
             }
 
+      # Crée la release :
+      # - si workflow_dispatch : tag = inputs.version
+      # - si push de tag v* : tag = github.ref_name
       - name: Create GitHub Release & Upload JAR
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.version }}
-          name: Release ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           body: ${{ github.event_name == 'workflow_dispatch' && inputs.notes || '' }}
-          files: dist/todo-list.jar
+          files: |
+            dist/todo-list.jar
           draft: false
           prerelease: false
         env:
