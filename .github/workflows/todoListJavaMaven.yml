@@ -1,4 +1,4 @@
-name: CI/CD Maven ToDoList (Java 24.0.1)
+name: CI-CD Maven (Java 24.0.1)
 
 on:
   push:
@@ -16,6 +16,11 @@ on:
 permissions:
   contents: write
 
+env:
+  MAVEN_VERSION: "3.9.10"
+  MAVEN_HOME: "${{ runner.temp }}/apache-maven-3.9.10"
+  MAVEN_OPTS: "-Dmaven.repo.local=${{ runner.temp }}/.m2/repository"
+
 jobs:
   ci:
     name: Build & Test
@@ -32,12 +37,21 @@ jobs:
         with:
           distribution: temurin
           java-version: 24.0.1
-          cache: maven
 
-      - name: Setup Maven 3.9.10
-        uses: s4u/setup-maven-action@v1.16.0
+      - name: Cache Maven repository (~/.m2)
+        uses: actions/cache@v4
         with:
-          maven-version: 3.9.10
+          path: ${{ runner.temp }}/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-${{ runner.os }}-
+
+      - name: Install Apache Maven ${{ env.MAVEN_VERSION }}
+        run: |
+          cd "${{ runner.temp }}"
+          curl -fsSLO https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+          tar -xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz
+          echo "${MAVEN_HOME}/bin" >> $GITHUB_PATH
 
       - name: Create ~/.m2/toolchains.xml (force JDK 24.0.1)
         run: |
@@ -54,14 +68,13 @@ jobs:
                 <vendor>any</vendor>
               </provides>
               <configuration>
-                <!-- actions/setup-java expose JAVA_HOME -->
                 <jdkHome>${env.JAVA_HOME}</jdkHome>
               </configuration>
             </toolchain>
           </toolchains>
           EOF
 
-      - name: Maven - Build & Test
+      - name: Maven - Build & Test (JUnit 5.10.2)
         run: mvn -B -ntp clean verify
 
       - name: Upload build artifacts (target/)
@@ -85,19 +98,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # nécessaire pour créer/mettre à jour un tag
+          fetch-depth: 0
 
       - name: Setup Java 24.0.1 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 24.0.1
-          cache: maven
 
-      - name: Setup Maven 3.9.10
-        uses: s4u/setup-maven-action@v1.16.0
+      - name: Cache Maven repository (~/.m2)
+        uses: actions/cache@v4
         with:
-          maven-version: 3.9.10
+          path: ${{ runner.temp }}/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-${{ runner.os }}-
+
+      - name: Install Apache Maven ${{ env.MAVEN_VERSION }}
+        run: |
+          cd "${{ runner.temp }}"
+          curl -fsSLO https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+          tar -xzf apache-maven-${MAVEN_VERSION}-bin.tar.gz
+          echo "${MAVEN_HOME}/bin" >> $GITHUB_PATH
 
       - name: Create ~/.m2/toolchains.xml (force JDK 24.0.1)
         run: |
@@ -179,7 +201,6 @@ jobs:
         id: jar
         shell: bash
         run: |
-          # Cherche un jar exécutable standard dans target/
           FILE="$(ls -1 target/*.jar | grep -v '\-sources\.jar$' | grep -v '\-javadoc\.jar$' | head -n1)"
           if [[ -z "$FILE" ]]; then
             echo "ERROR: aucun JAR trouvé dans target/" >&2
