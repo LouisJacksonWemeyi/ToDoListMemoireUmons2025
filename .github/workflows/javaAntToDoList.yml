@@ -1,0 +1,169 @@
+# This workflow will build, tests, create tag and release a Java project with Ant
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-ant
+
+name: CI/CD - ToDoList (Ant+Ivy+JUnit)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]               # si tu pousses un tag vX.Y.Z, on déploie aussi
+  pull_request:
+  workflow_dispatch:              # déclenchement manuel avec création du tag + release
+    inputs:
+      version:
+        description: "Version (ex: v1.0.0)"
+        required: true
+        type: string
+      notes:
+        description: "Release notes (optionnel)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write                 # nécessaire pour créer/mettre à jour le tag et la release
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: todo-list-ivy-java-ant
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Ant
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ant
+          ant -version
+          java -version
+
+      - name: Cache Ivy dependencies (~/.ivy2/cache)
+        uses: actions/cache@v4
+        with:
+          path: ~/.ivy2/cache
+          key: ${{ runner.os }}-ivy-${{ hashFiles('todo-list-ivy-java-ant/ivy.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-ivy-
+
+      # Optionnel si tu conserves le jar d'Ivy dans tools/ivy
+      - name: Cache local tools/ivy (optional)
+        uses: actions/cache@v4
+        with:
+          path: todo-list-ivy-java-ant/tools/ivy
+          key: ${{ runner.os }}-ivyjar-2.5.2
+          restore-keys: |
+            ${{ runner.os }}-ivyjar-
+
+      - name: Resolve dependencies (Ivy)
+        run: ant -Djdk.home="${JAVA_HOME}" resolve
+
+      - name: Compile
+        run: ant -Djdk.home="${JAVA_HOME}" compile
+
+      - name: Compile tests
+        run: ant -Djdk.home="${JAVA_HOME}" compile-tests
+
+      - name: Run tests (JUnit 5)
+        run: ant -Djdk.home="${JAVA_HOME}" test
+
+      - name: Build JAR
+        run: ant -Djdk.home="${JAVA_HOME}" jar
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: todo-list-jar
+          path: todo-list-ivy-java-ant/dist/todo-list.jar
+          if-no-files-found: error
+
+      - name: Upload JUnit reports (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-reports
+          path: todo-list-ivy-java-ant/build/reports/tests
+          if-no-files-found: ignore
+
+  tag-and-release:
+    name: Create Tag & Release
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: todo-list-jar
+          path: dist
+
+      # Crée ou met à jour le tag seulement si lancé en workflow_dispatch
+      - name: Create/Update tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = core.getInput('version');
+            if (!/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
+              core.setFailed(`Invalid version: ${version}. Expected vMAJOR.MINOR.PATCH`);
+              return;
+            }
+            const sha = context.sha; // le même commit que build-test
+            const ref = `refs/tags/${version}`;
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${version}`,
+              });
+              core.info(`Tag ${version} existe déjà -> mise à jour sur ${sha}`);
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${version}`,
+                sha,
+                force: true
+              });
+            } catch (e) {
+              core.info(`Création du tag ${version} -> ${sha}`);
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha
+              });
+            }
+
+      # Crée la release :
+      # - si workflow_dispatch : tag = inputs.version
+      # - si push de tag v* : tag = github.ref_name
+      - name: Create GitHub Release & Upload JAR
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          body: ${{ github.event_name == 'workflow_dispatch' && inputs.notes || '' }}
+          files: |
+            dist/todo-list.jar
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
