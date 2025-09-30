@@ -3,7 +3,7 @@ name: CI/CD Gradle ToDoList
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]         # push d'un tag vX.Y.Z => release auto
+    tags: [ 'v*' ]       # push d'un tag vX.Y.Z => release auto
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 env:
-  PROJECT_DIR: todo-list-java-gradle   # adapte si ton projet n'est pas dans ce sous-dossier
+  PROJECT_DIR: todo-list-java-gradle   # adapte si besoin
 
 jobs:
   build-test:
@@ -27,28 +27,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 🛡️ Validation du wrapper avec retry (réseau parfois instable)
-      # WRetry permet de relancer une action GitHub (et pas seulement une commande shell)
-      - name: Validate Gradle Wrapper (with retry)
+      # 🛡️ Validation du wrapper AVEC retry... mais NON BLOQUANT (continue-on-error)
+      - name: Validate Gradle Wrapper (with retry, non-blocking)
         uses: Wandalen/wretry.action@v3
+        continue-on-error: true
         with:
           action: gradle/wrapper-validation-action@v2
           attempt_limit: 3
-          attempt_delay: 30000      # 30s entre tentatives
+          attempt_delay: 30000
           with: |
             min-wrapper-count: 1
             allow-snapshots: false
 
-      # 🔁 Fallback local si la validation échoue (ne bloque pas le CI pour souci réseau)
-      - name: Fallback local wrapper sanity check (if validation failed)
-        if: failure()
+      # 🔁 Fallback local si la validation a échoué (timeouts réseau)
+      - name: Fallback local wrapper sanity check
+        if: ${{ failure() || always() }}
         run: |
           set -e
-          echo "::warning::Wrapper validation failed remotely; running local sanity checks."
+          echo "== Local checks =="
+          test -f "$PROJECT_DIR/gradlew"
           test -f "$PROJECT_DIR/gradle/wrapper/gradle-wrapper.jar"
+          # Vérifie que l’URL pointe bien vers services.gradle.org et un -bin.zip
           grep -E '^distributionUrl=https://services\.gradle\.org/distributions/gradle-[0-9.]+-bin\.zip' \
             "$PROJECT_DIR/gradle/wrapper/gradle-wrapper.properties" >/dev/null
-        continue-on-error: true
+          echo "OK: gradlew, jar et distributionUrl sûrs"
 
       - name: Set up Java 24 (Temurin)
         uses: actions/setup-java@v4
@@ -57,8 +59,11 @@ jobs:
           java-version: '24'
           cache: 'gradle'
 
-      - name: Setup Gradle (cache, develocity)
+      - name: Setup Gradle (cache)
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build & Test (JUnit 5.10.2)
         working-directory: ${{ env.PROJECT_DIR }}
