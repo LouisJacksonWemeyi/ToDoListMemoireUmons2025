@@ -174,7 +174,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const version = core.getInput('version', { required: true });
+            const version = process.env.VERSION; // <- récupérée de l'env
+            if (!version) {
+              core.setFailed("VERSION env var is missing");
+              process.exit(1);
+            }
             const sha = context.sha;
             const ref = `refs/tags/${version}`;
             try {
@@ -200,9 +204,8 @@ jobs:
                 sha
               });
             }
-          result-encoding: string
         env:
-          version: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
 
       - name: Déterminer le JAR à publier
         id: jar
