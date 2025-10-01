@@ -92,7 +92,7 @@ jobs:
   release:
     name: Create Tag & GitHub Release
     needs: build-test
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,15 +102,21 @@ jobs:
         id: resolve
         uses: actions/github-script@v7
         with:
+          # ➜ on passe l'input "version" de workflow_dispatch au script
+          version: ${{ github.event.inputs.version }}
           script: |
             const inputVer = core.getInput('version') || '';
             let version = inputVer;
             if (!version && context.ref && context.ref.startsWith('refs/tags/')) {
               version = context.ref.replace('refs/tags/','');
             }
-            if (!version) core.setFailed('Aucune version fournie et ce n’est pas un push de tag.');
+            if (!version) {
+              core.setFailed('Aucune version fournie et ce n’est pas un push de tag.');
+              return;
+            }
             if (!/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
               core.setFailed(`Version invalide: ${version}. Format attendu: vMAJOR.MINOR.PATCH`);
+              return;
             }
             core.setOutput('version', version);
 
