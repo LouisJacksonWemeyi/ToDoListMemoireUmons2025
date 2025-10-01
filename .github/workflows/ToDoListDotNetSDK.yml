@@ -3,14 +3,11 @@ name: CI/CD .NET ToDoListApp
 on:
   push:
     branches: [ "main", "master" ]
-    paths:
-      - "ToDoListNetSDK/**"
-    tags:
-      - "v*"
+    paths: [ "ToDoListNetSDK/**" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
-    paths:
-      - "ToDoListNetSDK/**"
+    paths: [ "ToDoListNetSDK/**" ]
   workflow_dispatch:
     inputs:
       version:
@@ -47,14 +44,14 @@ jobs:
       - name: Cache NuGet
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.nuget/packages
+          path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+          restore-keys: ${{ runner.os }}-nuget-
 
       - name: Restore
         run: |
+          # Sécurité : s'assurer qu'aucune var env "Version/VERSION" ne traîne
+          pwsh -NoLogo -NoProfile -Command "Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:VERSION -ErrorAction SilentlyContinue"
           dotnet restore "${{ env.APP_CSPROJ }}"
           dotnet restore "${{ env.TEST_CSPROJ }}"
 
@@ -84,61 +81,46 @@ jobs:
         with:
           dotnet-version: "6.x"
 
-      - name: Compute VERSION
-        id: version
+      - name: Compute TAG & APP_VERSION
+        id: vars
         shell: pwsh
         run: |
-          $v = "${{ github.event.inputs.version }}".Trim()
-          if (-not $v) {
-            if ("${{ github.ref }}".StartsWith("refs/tags/")) {
-              $v = "${{ github.ref }}".Replace("refs/tags/","")
-            }
+          $tag = "${{ github.event.inputs.version }}".Trim()
+          if (-not $tag) {
+            if ("${{ github.ref }}".StartsWith("refs/tags/")) { $tag = "${{ github.ref }}".Replace("refs/tags/","") }
           }
-          if (-not $v) {
-            Write-Error "Aucune version fournie et ce n’est pas un push de tag."
+          if (-not $tag) { Write-Error "Aucune version fournie et ce n’est pas un push de tag."; exit 1 }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z\.-]+)?$') {
+            Write-Error "Version invalide: $tag. Format attendu: vMAJOR.MINOR.PATCH"
             exit 1
           }
-          if ($v -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z\.-]+)?$') {
-            Write-Error "Version invalide: $v. Format attendu: vMAJOR.MINOR.PATCH"
-            exit 1
-          }
-          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "VERSION=$v"
+          $app = $tag.TrimStart('v')  # 1.0.5
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "APP_VERSION=$app" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "TAG=$tag"
+          Write-Host "APP_VERSION=$app"
 
       - name: Create or update tag (manual dispatch only)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/github-script@v7
         with:
           script: |
-            const version = process.env.VERSION;
+            const tag = process.env.TAG;
             const sha = context.sha;
-            const tagRef = `refs/tags/${version}`;
+            const refTag = `refs/tags/${tag}`;
             try {
-              await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `tags/${version}`
-              });
-              core.info(`Tag ${version} existe déjà -> mise à jour vers ${sha}`);
-              await github.rest.git.updateRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `tags/${version}`,
-                sha,
-                force: true
-              });
+              await github.rest.git.getRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${tag}` });
+              core.info(`Tag ${tag} existe déjà -> mise à jour vers ${sha}`);
+              await github.rest.git.updateRef({ owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${tag}`, sha, force: true });
             } catch (e) {
-              core.info(`Création du tag ${version} -> ${sha}`);
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: tagRef,
-                sha
-              });
+              core.info(`Création du tag ${tag} -> ${sha}`);
+              await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref: refTag, sha });
             }
 
       - name: Restore
         run: |
+          # Important : on ne définit PAS de variable d'env "VERSION/Version"
+          pwsh -NoLogo -NoProfile -Command "Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:VERSION -ErrorAction SilentlyContinue"
           dotnet restore "${{ env.APP_CSPROJ }}"
           dotnet restore "${{ env.TEST_CSPROJ }}"
 
@@ -148,47 +130,47 @@ jobs:
           dotnet build "${{ env.TEST_CSPROJ }}" -c Release --no-restore
           dotnet test  "${{ env.TEST_CSPROJ }}" -c Release --no-build --verbosity normal
 
-      # 1) Publication framework-dependent -> DLL + apphost (EXE) dans le ZIP
-      - name: Publish (framework-dependent DLL + apphost)
+      # Publication framework-dependent -> DLL + apphost EXE
+      - name: Publish (framework-dependent)
         shell: pwsh
         run: |
           $out = "publish/fwdep"
           dotnet publish "${{ env.APP_CSPROJ }}" -c Release `
             -p:UseAppHost=true `
             --no-build -o "$out"
-          Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-fwdep-${{ env.VERSION }}.zip"
+          Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-fwdep-${{ env.TAG }}.zip"
 
-      # 2) Publication Windows self-contained single-file -> EXE
-      - name: Publish (win-x64 self-contained EXE)
+      # Publication Windows self-contained single-file -> EXE
+      - name: Publish (win-x64 self-contained)
         shell: pwsh
         run: |
           $out = "publish/win-x64"
           dotnet publish "${{ env.APP_CSPROJ }}" -c Release -r win-x64 `
             -p:PublishSingleFile=true -p:SelfContained=true -p:IncludeNativeLibrariesForSelfExtract=true `
             --no-build -o "$out"
-          Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-win-x64-${{ env.VERSION }}.zip"
+          Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-win-x64-${{ env.TAG }}.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ToDoApp-${{ env.VERSION }}
+          name: ToDoApp-${{ env.TAG }}
           path: |
-            ToDoApp-fwdep-${{ env.VERSION }}.zip
-            ToDoApp-win-x64-${{ env.VERSION }}.zip
+            ToDoApp-fwdep-${{ env.TAG }}.zip
+            ToDoApp-win-x64-${{ env.TAG }}.zip
           if-no-files-found: error
           retention-days: 7
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: Release ${{ env.VERSION }}
+          tag_name: ${{ env.TAG }}
+          name: Release ${{ env.TAG }}
           body: |
-            Release ${{ env.VERSION }} — ToDoApp (.NET 6)
+            Release ${{ env.TAG }} — ToDoApp (.NET 6)
             Artefacts:
-            - Framework-dependent (DLL + apphost EXE): ToDoApp-fwdep-${{ env.VERSION }}.zip
-            - Windows self-contained single-file (EXE): ToDoApp-win-x64-${{ env.VERSION }}.zip
+            - Framework-dependent (DLL + apphost EXE): ToDoApp-fwdep-${{ env.TAG }}.zip
+            - Windows self-contained single-file (EXE): ToDoApp-win-x64-${{ env.TAG }}.zip
           prerelease: ${{ github.event.inputs.prerelease }}
           files: |
-            ToDoApp-fwdep-${{ env.VERSION }}.zip
-            ToDoApp-win-x64-${{ env.VERSION }}.zip
+            ToDoApp-fwdep-${{ env.TAG }}.zip
+            ToDoApp-win-x64-${{ env.TAG }}.zip
