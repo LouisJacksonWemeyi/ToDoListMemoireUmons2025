@@ -28,6 +28,7 @@ env:
   DOTNET_MULTILEVEL_LOOKUP: "0"
   APP_CSPROJ: ToDoListNetSDK/src/ToDoApp/ToDoApp.csproj
   TEST_CSPROJ: ToDoListNetSDK/tests/ToDoApp.Tests/ToDoApp.Tests.csproj
+  # ⚠️ Ne PAS définir DOTNET_ROOT ici
 
 jobs:
   ci:
@@ -37,16 +38,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pin explicite du SDK .NET 6 via un global.json local au workspace
+      # Crée un global.json VALIDE (avant tout dotnet --info)
       - name: Pin SDK 6.0 via global.json
         shell: pwsh
         run: |
-          '@{
-            "sdk" = @{
-              "version"     = "6.0.418"
-              "rollForward" = "latestFeature"
+          @"
+          {
+            "sdk": {
+              "version": "6.0.428",
+              "rollForward": "latestFeature"
             }
-          }' | ConvertTo-Json -Depth 3 | Out-File -FilePath global.json -Encoding utf8
+          }
+          "@ | Set-Content -Path global.json -Encoding utf8
 
       - name: Setup .NET 6.0.x
         uses: actions/setup-dotnet@v4
@@ -67,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           # Évite que des variables env écrasent des propriétés MSBuild
-          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK -ErrorAction SilentlyContinue
+          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK,Env:DOTNET_ROOT -ErrorAction SilentlyContinue
           dotnet restore "${{ env.APP_CSPROJ }}"
           dotnet restore "${{ env.TEST_CSPROJ }}"
 
@@ -151,8 +154,8 @@ jobs:
       - name: Restore (net6.0 + win-x64)
         shell: pwsh
         run: |
-          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK -ErrorAction SilentlyContinue
-          # Utilise des propriétés MSBuild au lieu de --framework (qui est routé vers MSBuild)
+          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK,Env:DOTNET_ROOT -ErrorAction SilentlyContinue
+          # Utilise des propriétés MSBuild pour bien générer la cible RID
           dotnet restore "${{ env.APP_CSPROJ }}"  -p:TargetFramework=net6.0 -p:RuntimeIdentifier=win-x64
           dotnet restore "${{ env.TEST_CSPROJ }}" -p:TargetFramework=net6.0
 
