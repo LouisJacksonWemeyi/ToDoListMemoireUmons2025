@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main", "master" ]
     paths: [ "ToDoListNetSDK/**" ]
-    tags: [ "v*" ]
+    tags:   [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
     paths: [ "ToDoListNetSDK/**" ]
@@ -36,10 +36,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 6.x
+      # Pin explicitement .NET 6.0 (évite l'utilisation accidentelle du SDK 9)
+      - name: Setup .NET 6.0.x
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "6.x"
+          dotnet-version: "6.0.x"
+
+      - name: Dotnet info
+        run: dotnet --info
 
       - name: Cache NuGet
         uses: actions/cache@v4
@@ -48,20 +52,21 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Restore
+      - name: Restore (net6.0)
+        shell: pwsh
         run: |
-          # Sécurité : s'assurer qu'aucune var env "Version/VERSION" ne traîne
-          pwsh -NoLogo -NoProfile -Command "Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:VERSION -ErrorAction SilentlyContinue"
-          dotnet restore "${{ env.APP_CSPROJ }}"
-          dotnet restore "${{ env.TEST_CSPROJ }}"
+          # Nettoie des variables d'env susceptibles d'écraser des propriétés MSBuild
+          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK -ErrorAction SilentlyContinue
+          dotnet restore "${{ env.APP_CSPROJ }}" --framework net6.0
+          dotnet restore "${{ env.TEST_CSPROJ }}" --framework net6.0
 
-      - name: Build (Debug)
+      - name: Build (Debug, net6.0)
         run: |
-          dotnet build "${{ env.APP_CSPROJ }}" -c Debug --no-restore
-          dotnet build "${{ env.TEST_CSPROJ }}" -c Debug --no-restore
+          dotnet build "${{ env.APP_CSPROJ }}"  -c Debug --no-restore -f net6.0
+          dotnet build "${{ env.TEST_CSPROJ }}" -c Debug --no-restore -f net6.0
 
-      - name: Test
-        run: dotnet test "${{ env.TEST_CSPROJ }}" -c Debug --no-build --verbosity normal
+      - name: Test (net6.0)
+        run: dotnet test "${{ env.TEST_CSPROJ }}" -c Debug --no-build -f net6.0 --verbosity normal
 
   release:
     name: Create Tag + Release + Publish DLL/EXE
@@ -76,10 +81,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup .NET 6.x
+      - name: Setup .NET 6.0.x
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "6.x"
+          dotnet-version: "6.0.x"
+
+      - name: Dotnet info
+        run: dotnet --info
 
       - name: Compute TAG & APP_VERSION
         id: vars
@@ -94,8 +102,8 @@ jobs:
             Write-Error "Version invalide: $tag. Format attendu: vMAJOR.MINOR.PATCH"
             exit 1
           }
-          $app = $tag.TrimStart('v')  # 1.0.5
-          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $app = $tag.TrimStart('v')  # ex: 1.0.5
+          "TAG=$tag"         | Out-File -FilePath $env:GITHUB_ENV -Append
           "APP_VERSION=$app" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "TAG=$tag"
           Write-Host "APP_VERSION=$app"
@@ -117,35 +125,36 @@ jobs:
               await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref: refTag, sha });
             }
 
-      - name: Restore
+      - name: Restore (net6.0 + win-x64)
+        shell: pwsh
         run: |
-          # Important : on ne définit PAS de variable d'env "VERSION/Version"
-          pwsh -NoLogo -NoProfile -Command "Remove-Item Env:Version -ErrorAction SilentlyContinue; Remove-Item Env:VERSION -ErrorAction SilentlyContinue"
-          dotnet restore "${{ env.APP_CSPROJ }}"
-          dotnet restore "${{ env.TEST_CSPROJ }}"
+          # Nettoyage défensif des props MSBuild héritées
+          Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK -ErrorAction SilentlyContinue
+          dotnet restore "${{ env.APP_CSPROJ }}"  --framework net6.0 -r win-x64
+          dotnet restore "${{ env.TEST_CSPROJ }}" --framework net6.0
 
-      - name: Build & Test (Release)
+      - name: Build & Test (Release, net6.0)
         run: |
-          dotnet build "${{ env.APP_CSPROJ }}" -c Release --no-restore
-          dotnet build "${{ env.TEST_CSPROJ }}" -c Release --no-restore
-          dotnet test  "${{ env.TEST_CSPROJ }}" -c Release --no-build --verbosity normal
+          dotnet build "${{ env.APP_CSPROJ }}"  -c Release --no-restore -f net6.0
+          dotnet build "${{ env.TEST_CSPROJ }}" -c Release --no-restore -f net6.0
+          dotnet test  "${{ env.TEST_CSPROJ }}" -c Release --no-build    -f net6.0 --verbosity normal
 
-      # Publication framework-dependent -> DLL + apphost EXE
-      - name: Publish (framework-dependent)
+      # 1) Publication framework-dependent -> DLL + apphost EXE
+      - name: Publish (framework-dependent, net6.0)
         shell: pwsh
         run: |
           $out = "publish/fwdep"
-          dotnet publish "${{ env.APP_CSPROJ }}" -c Release `
+          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f net6.0 `
             -p:UseAppHost=true `
             --no-build -o "$out"
           Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-fwdep-${{ env.TAG }}.zip"
 
-      # Publication Windows self-contained single-file -> EXE
-      - name: Publish (win-x64 self-contained)
+      # 2) Publication Windows self-contained single-file -> EXE
+      - name: Publish (win-x64 self-contained, net6.0)
         shell: pwsh
         run: |
           $out = "publish/win-x64"
-          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -r win-x64 `
+          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f net6.0 -r win-x64 `
             -p:PublishSingleFile=true -p:SelfContained=true -p:IncludeNativeLibrariesForSelfExtract=true `
             --no-build -o "$out"
           Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-win-x64-${{ env.TAG }}.zip"
