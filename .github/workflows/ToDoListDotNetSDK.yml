@@ -177,6 +177,10 @@ jobs:
             --no-build -o "$out"
           if (!(Test-Path $out)) { throw "Output not found: $out" }
           Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-fwdep-${{ env.TAG }}.zip"
+          
+      - name: Build (Release, RID for apphost)
+        run: |
+          dotnet build "${{ env.APP_CSPROJ }}" -c Release -f ${{ env.TFM }} -r win-x64 --no-restore
 
       # 2) Publication Windows self-contained single-file -> EXE
       - name: Publish (win-x64 self-contained)
