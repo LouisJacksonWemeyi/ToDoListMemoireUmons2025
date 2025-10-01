@@ -25,6 +25,7 @@ permissions:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  DOTNET_MULTILEVEL_LOOKUP: "0"
   APP_CSPROJ: ToDoListNetSDK/src/ToDoApp/ToDoApp.csproj
   TEST_CSPROJ: ToDoListNetSDK/tests/ToDoApp.Tests/ToDoApp.Tests.csproj
 
@@ -94,12 +95,14 @@ jobs:
       - name: Pin SDK 6.0 via global.json
         shell: pwsh
         run: |
-          '@{
-            "sdk" = @{
-              "version"     = "6.0.418"
-              "rollForward" = "latestFeature"
+          @"
+          {
+            "sdk": {
+              "version": "6.0.428",
+              "rollForward": "latestFeature"
             }
-          }' | ConvertTo-Json -Depth 3 | Out-File -FilePath global.json -Encoding utf8
+          }
+          "@ | Set-Content -Path global.json -Encoding utf8
 
       - name: Setup .NET 6.0.x
         uses: actions/setup-dotnet@v4
