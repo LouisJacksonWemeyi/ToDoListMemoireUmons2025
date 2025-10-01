@@ -28,7 +28,7 @@ env:
   DOTNET_MULTILEVEL_LOOKUP: "0"
   APP_CSPROJ: ToDoListNetSDK/src/ToDoApp/ToDoApp.csproj
   TEST_CSPROJ: ToDoListNetSDK/tests/ToDoApp.Tests/ToDoApp.Tests.csproj
-  # ⚠️ Ne PAS définir DOTNET_ROOT ici
+  # ⚠️ Ne pas définir DOTNET_ROOT ici (laisse setup-dotnet gérer)
 
 jobs:
   ci:
@@ -38,26 +38,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Crée un global.json VALIDE (avant tout dotnet --info)
-      - name: Pin SDK 6.0 via global.json
-        shell: pwsh
-        run: |
-          @"
-          {
-            "sdk": {
-              "version": "6.0.428",
-              "rollForward": "latestFeature"
-            }
-          }
-          "@ | Set-Content -Path global.json -Encoding utf8
-
-      - name: Setup .NET 6.0.x
+      # Utilise le SDK 9.x qui supporte net6/net8/net9
+      - name: Setup .NET 9.0.x
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "9.0.x"
 
       - name: Dotnet info
         run: dotnet --info
+
+      - name: Detect TargetFramework (TFM) from csproj
+        id: tfm
+        shell: pwsh
+        run: |
+          [xml]$xml = Get-Content $env:APP_CSPROJ
+          $tfm = $xml.Project.PropertyGroup.TargetFramework
+          if (-not $tfm) {
+            $tfms = $xml.Project.PropertyGroup.TargetFrameworks
+            if ($tfms) { $tfm = ($tfms -split ';' | Select-Object -First 1) }
+          }
+          if (-not $tfm) { $tfm = 'net6.0' }
+          "TFM=$tfm" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Detected TFM = $tfm"
 
       - name: Cache NuGet
         uses: actions/cache@v4
@@ -66,21 +68,20 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Restore (net6.0)
+      - name: Restore
         shell: pwsh
         run: |
-          # Évite que des variables env écrasent des propriétés MSBuild
           Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK,Env:DOTNET_ROOT -ErrorAction SilentlyContinue
-          dotnet restore "${{ env.APP_CSPROJ }}"
-          dotnet restore "${{ env.TEST_CSPROJ }}"
+          dotnet restore "${{ env.APP_CSPROJ }}" -p:TargetFramework=${{ env.TFM }}
+          dotnet restore "${{ env.TEST_CSPROJ }}" -p:TargetFramework=${{ env.TFM }}
 
-      - name: Build (Debug, net6.0)
+      - name: Build (Debug)
         run: |
-          dotnet build "${{ env.APP_CSPROJ }}"  -c Debug --no-restore -f net6.0
-          dotnet build "${{ env.TEST_CSPROJ }}" -c Debug --no-restore -f net6.0
+          dotnet build "${{ env.APP_CSPROJ }}"  -c Debug --no-restore -f ${{ env.TFM }}
+          dotnet build "${{ env.TEST_CSPROJ }}" -c Debug --no-restore -f ${{ env.TFM }}
 
-      - name: Test (net6.0)
-        run: dotnet test "${{ env.TEST_CSPROJ }}" -c Debug --no-build -f net6.0 --verbosity normal
+      - name: Test
+        run: dotnet test "${{ env.TEST_CSPROJ }}" -c Debug --no-build -f ${{ env.TFM }} --verbosity normal
 
   release:
     name: Create Tag + Release + Publish DLL/EXE
@@ -95,25 +96,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Pin SDK 6.0 via global.json
-        shell: pwsh
-        run: |
-          @"
-          {
-            "sdk": {
-              "version": "6.0.428",
-              "rollForward": "latestFeature"
-            }
-          }
-          "@ | Set-Content -Path global.json -Encoding utf8
-
-      - name: Setup .NET 6.0.x
+      - name: Setup .NET 9.0.x
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "9.0.x"
 
       - name: Dotnet info
         run: dotnet --info
+
+      - name: Detect TargetFramework (TFM) from csproj
+        id: tfm
+        shell: pwsh
+        run: |
+          [xml]$xml = Get-Content $env:APP_CSPROJ
+          $tfm = $xml.Project.PropertyGroup.TargetFramework
+          if (-not $tfm) {
+            $tfms = $xml.Project.PropertyGroup.TargetFrameworks
+            if ($tfms) { $tfm = ($tfms -split ';' | Select-Object -First 1) }
+          }
+          if (-not $tfm) { $tfm = 'net6.0' }
+          "TFM=$tfm" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Detected TFM = $tfm"
 
       - name: Compute TAG & APP_VERSION
         id: vars
@@ -151,37 +154,36 @@ jobs:
               await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref: refTag, sha });
             }
 
-      - name: Restore (net6.0 + win-x64)
+      - name: Restore (with RID for publish)
         shell: pwsh
         run: |
           Remove-Item Env:Version,Env:VERSION,Env:TargetFramework,Env:TARGETFRAMEWORK,Env:DOTNET_ROOT -ErrorAction SilentlyContinue
-          # Utilise des propriétés MSBuild pour bien générer la cible RID
-          dotnet restore "${{ env.APP_CSPROJ }}"  -p:TargetFramework=net6.0 -p:RuntimeIdentifier=win-x64
-          dotnet restore "${{ env.TEST_CSPROJ }}" -p:TargetFramework=net6.0
+          dotnet restore "${{ env.APP_CSPROJ }}"  -p:TargetFramework=${{ env.TFM }} -p:RuntimeIdentifier=win-x64
+          dotnet restore "${{ env.TEST_CSPROJ }}" -p:TargetFramework=${{ env.TFM }}
 
-      - name: Build & Test (Release, net6.0)
+      - name: Build & Test (Release)
         run: |
-          dotnet build "${{ env.APP_CSPROJ }}"  -c Release --no-restore -f net6.0
-          dotnet build "${{ env.TEST_CSPROJ }}" -c Release --no-restore -f net6.0
-          dotnet test  "${{ env.TEST_CSPROJ }}" -c Release --no-build    -f net6.0 --verbosity normal
+          dotnet build "${{ env.APP_CSPROJ }}"  -c Release --no-restore -f ${{ env.TFM }}
+          dotnet build "${{ env.TEST_CSPROJ }}" -c Release --no-restore -f ${{ env.TFM }}
+          dotnet test  "${{ env.TEST_CSPROJ }}" -c Release --no-build -f ${{ env.TFM }} --verbosity normal
 
-      # 1) Publication framework-dependent -> DLL + apphost EXE
-      - name: Publish (framework-dependent, net6.0)
+      # 1) Publication framework-dependent -> DLL + apphost EXE (selon TFM détecté)
+      - name: Publish (framework-dependent)
         shell: pwsh
         run: |
           $out = "publish/fwdep"
-          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f net6.0 `
+          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f ${{ env.TFM }} `
             -p:UseAppHost=true `
             --no-build -o "$out"
           if (!(Test-Path $out)) { throw "Output not found: $out" }
           Compress-Archive -Path "$out/*" -DestinationPath "ToDoApp-fwdep-${{ env.TAG }}.zip"
 
       # 2) Publication Windows self-contained single-file -> EXE
-      - name: Publish (win-x64 self-contained, net6.0)
+      - name: Publish (win-x64 self-contained)
         shell: pwsh
         run: |
           $out = "publish/win-x64"
-          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f net6.0 -r win-x64 `
+          dotnet publish "${{ env.APP_CSPROJ }}" -c Release -f ${{ env.TFM }} -r win-x64 `
             -p:PublishSingleFile=true -p:SelfContained=true -p:IncludeNativeLibrariesForSelfExtract=true `
             --no-build -o "$out"
           if (!(Test-Path $out)) { throw "Output not found: $out" }
@@ -203,7 +205,7 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: Release ${{ env.TAG }}
           body: |
-            Release ${{ env.TAG }} — ToDoApp (.NET 6)
+            Release ${{ env.TAG }} — ToDoApp (.NET)
             Artefacts:
             - Framework-dependent (DLL + apphost EXE): ToDoApp-fwdep-${{ env.TAG }}.zip
             - Windows self-contained single-file (EXE): ToDoApp-win-x64-${{ env.TAG }}.zip
