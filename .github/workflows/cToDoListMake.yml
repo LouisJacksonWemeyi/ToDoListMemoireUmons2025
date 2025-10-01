@@ -14,7 +14,7 @@ on:
         default: ''
 
 permissions:
-  contents: write   # nécessaire pour créer tag + release
+  contents: write
 
 jobs:
   build-test:
@@ -23,6 +23,7 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
+        working-directory: todo-list-c-acutest-make
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,7 +56,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: todo_app-win-x64
-          path: dist/
+          path: todo-list-c-acutest-make/dist/
 
   release:
     name: Create Tag & GitHub Release
@@ -89,7 +90,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: todo_app-win-x64
-          path: dist
+          path: todo-list-c-acutest-make/dist
 
       - name: Create or update tag
         uses: actions/github-script@v7
@@ -125,12 +126,13 @@ jobs:
             }
 
       - name: Rename assets with version
-        shell: bash
+        shell: pwsh
         run: |
-          cd dist
-          if [ -f "todo_app-win-x64.zip" ]; then mv "todo_app-win-x64.zip" "todo_app-win-x64-${{ steps.ver.outputs.version }}.zip"; fi
-          if [ -f "todo_app.exe" ]; then mv "todo_app.exe" "todo_app-${{ steps.ver.outputs.version }}.exe"; fi
-          ls -al
+          $v = "${{ steps.ver.outputs.version }}"
+          Set-Location "todo-list-c-acutest-make/dist"
+          if (Test-Path "todo_app-win-x64.zip") { Rename-Item "todo_app-win-x64.zip" "todo_app-win-x64-$v.zip" -Force }
+          if (Test-Path "todo_app.exe") { Rename-Item "todo_app.exe" "todo_app-$v.exe" -Force }
+          Get-ChildItem
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -142,5 +144,5 @@ jobs:
             - Build: Windows (MSYS2/MinGW64) via Makefile
             - Tests: Acutest (C) ✅
           files: |
-            dist/todo_app-${{ steps.ver.outputs.version }}.exe
-            dist/todo_app-win-x64-${{ steps.ver.outputs.version }}.zip
+            todo-list-c-acutest-make/dist/todo_app-${{ steps.ver.outputs.version }}.exe
+            todo-list-c-acutest-make/dist/todo_app-win-x64-${{ steps.ver.outputs.version }}.zip
